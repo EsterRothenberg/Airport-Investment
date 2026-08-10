@@ -8,8 +8,9 @@ class AirportAnalysis(BaseModel):
     capacity_pressure_score: float | None = None
     operational_congestion_score: float | None = None
     network_value_score: float | None = None
+    market_scale_score: float | None = None
 
     expansion_opportunity_score: float | None = None
-
+    data_completeness_pct: float = 100.0
     assumptions: list[str] = Field(default_factory=list)
     missing_data: list[str] = Field(default_factory=list)

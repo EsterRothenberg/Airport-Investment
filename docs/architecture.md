@@ -1,413 +1,134 @@
-# Airport Investment Intelligence Agent - Architecture & Design
+# Airport Investment Intelligence Agent - Architecture
 
-## Executive Summary
+## Overview
 
-The Airport Investment Intelligence Agent is an AI-powered system designed to help investment firms identify promising airport modernization opportunities. The system uses deterministic scoring logic combined with conversational AI to provide data-driven investment recommendations.
+The system helps investment analysts screen U.S. airports for modernization and terminal-expansion opportunities.
 
-**Key Capability**: Answers complex queries like "Which airports in New England are strong candidates for terminal expansion?" by fetching data from multiple sources, applying multi-factor scoring logic, and explaining reasoning clearly.
+The main design principle is separation between **AI reasoning** and **quantitative analysis**:
 
-## System Architecture
+* The LLM understands user intent, selects tools, maintains conversational context, and explains results.
+* Python services calculate all aviation metrics, scores, comparisons, and rankings deterministically.
 
-### High-Level Design
+This keeps quantitative results reproducible and reduces LLM hallucination risk.
 
+## Architecture
+
+```text id="a76sq1"
+User
+  ↓
+Streamlit Chat UI
+  ↓
+LLM Agent
+  ↓
+Agent Tools
+  ↓
+AirportService
+  ├── BTS Airport Traffic
+  ├── T-100 Route Data
+  ├── On-Time Performance
+  └── Airport Metadata
+  ↓
+AnalyticsService
+  ↓
+AirportMetrics
+  ↓
+ScoringService
+  ↓
+Expansion Opportunity Score
+  ↓
+LLM explanation
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Chat Interface (CLI)                      │
-│            (Natural language query → response)               │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-┌──────────────────────────┴──────────────────────────────────┐
-│           Conversational Agent (agent.py)                    │
-│  - Query parsing & intent classification                    │
-│  - Multi-turn conversation context                          │
-│  - Response orchestration                                   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-┌───────▼────────┐  ┌──────▼──────┐  ┌───────▼────────┐
-│  Data Fetching │  │   Scoring   │  │  Comparison &  │
-│  (Providers)   │  │   Logic     │  │   Ranking      │
-└───────┬────────┘  └──────┬──────┘  └───────┬────────┘
-        │                  │                  │
-        └──────────────────┼──────────────────┘
-                           │
-        ┌──────────────────┴──────────────────┐
-        │                                     │
-┌───────▼──────────┐              ┌──────────▼────────┐
-│ Data Providers   │              │    Services       │
-│ - BTS API        │              │ - Scoring         │
-│ - FAA API        │              │ - Analytics       │
-│ - T100 Provider  │              │ - Airport Mgmt    │
-└──────────────────┘              └───────────────────┘
-```
+
+For geographic questions, the LLM translates expressions such as "New England" or "Pacific Northwest" into U.S. state codes. Airport discovery itself is then performed deterministically against the airport metadata dataset.
 
 ## Scoring Methodology
 
-### Overview
+The **Expansion Opportunity Score** is a deterministic 0–100 screening metric:
 
-The investment score is calculated using a **deterministic, multi-factor scoring system** (0-10 scale) that combines six equally-weighted KPI categories. This ensures transparency and reproducibility.
+| Dimension            | Weight | Main inputs                            |
+| -------------------- | -----: | -------------------------------------- |
+| Demand Growth        |    30% | Passenger growth, flight growth        |
+| Capacity Pressure    |    25% | Load factor, flight growth             |
+| Operational Pressure |    20% | Delay rate, cancellation rate          |
+| Network Value        |    15% | Route count, long-haul departure share |
+| Market Scale         |    10% | Passenger volume, annual departures    |
 
-### Six Scoring Factors (20% weight each)
+Each input is normalized to a 0–100 scale before applying the weights.
 
-#### 1. **Traffic Growth Score** (0-10)
-**What**: Year-over-year passenger growth rate
-**Rationale**: Growing airports signal increased demand and revenue potential
-**Calculation**:
-- Score = min(10, max(0, growth_rate_percentage))
-- Example: 8% growth → 8.0/10
+Market Scale is included to reduce the risk of ranking small airports highly solely because of unusually large percentage growth.
 
-**Why it matters**: Demonstrates market momentum and expansion viability
+The score is intended for **directional screening**, not as a financial ROI estimate.
 
-#### 2. **Capacity Utilization Score** (0-10)
-**What**: Runway utilization percentage
-**Rationale**: High utilization indicates congestion and expansion urgency
-**Calculation**:
-- <50% utilization → 3.0/10 (underutilized)
-- 50-75% → 6.0/10 (moderate)
-- 75-90% → 8.0/10 (good expansion opportunity)
-- >90% → 10.0/10 (urgent expansion need)
+### Missing Data
 
-**Why it matters**: Quantifies growth constraint and ROI urgency
+Missing values are not treated as zero.
 
-#### 3. **Financial Efficiency Score** (0-10)
-**What**: Airport size based on annual passenger volume
-**Rationale**: Larger airports generate more revenue to support modernization
-**Calculation**:
-- Logarithmic scale: (log₁₀(passengers) - 6) × 2
-- 10M passengers → 2/10, 100M passengers → 10/10
+When a scoring dimension is unavailable, the remaining weights are re-normalized. A separate `data_completeness_pct` shows how much of the original weighted model could be evaluated.
 
-**Why it matters**: Revenue potential scales with airport size
+For example, if Operational Pressure (20%) is unavailable, data completeness is 80%.
 
-#### 4. **Market Position Score** (0-10)
-**What**: International connectivity (routes, airlines, seat utilization)
-**Rationale**: Strong international presence increases premium pricing power
-**Calculation**:
-- Route score: min(10, routes/5)
-- Airline score: min(10, airlines/3)
-- Utilization score: seat_utilization/10
-- Average of three components
+## Long-Haul Methodology
 
-**Why it matters**: International routes support higher margins on modernization ROI
+For this prototype, long-haul is defined as a nonstop segment of at least **3,000 miles**.
 
-#### 5. **Growth Potential Score** (0-10)
-**What**: Unmet demand signals (utilization + congestion)
-**Rationale**: High demand with constraints = strong expansion opportunity
-**Calculation**:
-- >85% utilization + HIGH congestion → 9.0/10
-- 75-85% utilization → 7.5/10
-- 60-75% → 6.0/10
-- <60% → 4.0/10
+Long-haul share is calculated using performed passenger-service departures:
 
-**Why it matters**: Forward-looking indicator of expansion urgency
-
-#### 6. **Operational Health Score** (0-10)
-**What**: On-time performance and safety rating
-**Rationale**: Operational excellence required for premium investments
-**Calculation**:
-- On-time score: OTP_percentage / 10
-- Safety score: A=10, B=8, C=5
-- Average of two components
-
-**Why it matters**: Reduces operational risk in modernization projects
-
-### Overall Score Calculation
-
-```
-Overall Score = 0.20 × (Growth Score) +
-                0.20 × (Capacity Score) +
-                0.20 × (Financial Score) +
-                0.20 × (Market Score) +
-                0.10 × (Potential Score) +
-                0.10 × (Health Score)
+```text id="u1hh2h"
+Long-haul departures / Total departures × 100
 ```
 
-### Investment Recommendations
-
-| Score Range | Recommendation | Meaning |
-|-------------|-----------------|---------|
-| 8.0+ | STRONG BUY | Excellent expansion opportunity, high confidence |
-| 6.5-8.0 | BUY | Good investment potential, execute with standard diligence |
-| 5.0-6.5 | HOLD | Monitor for opportunities, wait for catalyst |
-| 3.0-5.0 | WEAK | Limited growth indicators, avoid unless strategic |
-| <3.0 | AVOID | Poor risk/reward profile |
-
-## Key Design Tradeoffs
-
-### 1. **Deterministic vs. AI-Driven Scoring**
-
-**Decision**: Deterministic scoring with AI for explanation
-- ✅ Reproducible and auditable
-- ✅ Regulatory compliant
-- ✅ Transparent to stakeholders
-- ❌ May miss complex interactions
-- ❌ Requires manual rule updates
-
-**Alternative**: Pure LLM-based scoring
-- ✅ Adaptive to new patterns
-- ✅ Can capture complex relationships
-- ❌ Black box, difficult to audit
-- ❌ May have hidden biases
-- ❌ Regulatory concerns
-
-**Chosen Approach**: Deterministic scoring ensures investment decisions are defensible while LLM can provide narrative explanation and context.
-
-### 2. **Mock Data vs. Real API Integration**
-
-**Decision**: Mock data with real API infrastructure
-- ✅ Fast development (no API keys, rate limits)
-- ✅ Consistent for testing/demo
-- ✅ Extensible to real APIs
-- ❌ Not production-ready for real investments
-- ❌ May not capture all real nuances
-
-**For Production**: Replace providers with real API integrations:
-```python
-# Mock providers return deterministic data
-# Real providers would call:
-# - BTS TransStats API
-# - FAA API  
-# - Eurocontrol T100 data
-# - Airport operator APIs
-```
-
-### 3. **Conversation Context vs. Stateless Queries**
-
-**Decision**: Maintain conversation history with context
-- ✅ Supports follow-up questions ("What about this airport?")
-- ✅ Better user experience
-- ✅ Enables multi-turn reasoning
-- ❌ More complex state management
-- ❌ Privacy implications with data storage
-
-### 4. **Equal Weighting vs. Empirical Weighting**
-
-**Decision**: Equal 20% weighting for first four factors, lower weight for speculative factors
-- ✅ Simple, transparent, defensible
-- ✅ Avoids overfitting to historical data
-- ❌ May not reflect actual ROI drivers
-- ❌ Requires expert calibration
-
-**Alternative**: Empirical weighting based on historical ROI data
-- Would require extensive backtesting
-- Could be added post-MVP
-
-## Data Integration
-
-### Providers
-
-#### BTS API Provider (`bts_api.py`)
-**Provides**:
-- Historical traffic data (12 months)
-- Passenger and flight counts
-- Domestic/international ratios
-
-**Quality**: Public government data, highly reliable
-**Latency**: Publicly available, no rate limits
-**Coverage**: All US commercial airports
-
-#### FAA Provider (`faa_provider.py`)
-**Provides**:
-- Airport infrastructure (gates, runways, terminals)
-- Operational metrics (utilization, delays)
-- Safety ratings
-
-**Quality**: Authoritative FAA data
-**Coverage**: All US airports
-
-#### T100 Provider (`t100_provider.py`)
-**Provides**:
-- International routes and carriers
-- Seat capacity and utilization
-- Weekly schedule data
-
-**Quality**: BTS T100 international airline statistics
-**Coverage**: Carriers with US international routes
-
-### Data Freshness Assumptions
-- **Traffic data**: Monthly (12-month history)
-- **Operational metrics**: Weekly
-- **International routes**: Monthly
-- **Update frequency**: Scores recalculated weekly
-
-**Note**: Mock implementation uses random data within realistic bounds. Production version requires scheduled API sync.
-
-## Query Processing
-
-### Intent Classification
-
-The agent uses pattern matching to classify queries into types:
-
-1. **Expansion Queries** → Region analysis + ranking
-   - Pattern: "terminal", "expansion", "candidate", "New England"
-   - Action: Fetch all airports in region, rank by expansion potential
-
-2. **Comparison Queries** → Pairwise analysis
-   - Pattern: "compare", "vs", "congestion"
-   - Action: Extract airport codes, fetch both, generate comparison
-
-3. **Statistical Queries** → Specific metrics
-   - Pattern: "percentage", "long haul", "flights"
-   - Action: Fetch flight data, extract statistics
-
-4. **Demand Queries** → Capacity analysis
-   - Pattern: "unmet", "demand", "capacity"
-   - Action: Analyze utilization, generate recommendations
-
-### Response Generation
-
-**For Deterministic Analysis**:
-- Query data providers
-- Calculate scores for each factor
-- Explain reasoning for each score
-- Generate actionable recommendations
-
-**For Rankings**:
-- Score all airports
-- Sort by score
-- Show top opportunities
-- Explain key differentiators
-
-**For Comparisons**:
-- Score both airports
-- Highlight differences
-- Identify winner
-- Provide reasoning
-
-## Use of AI/LLM
-
-### Where AI is NOT Used (Critical Decision)
-❌ Scoring calculations - All deterministic
-❌ Investment recommendations - Based on scores, not LLM output
-❌ Risk assessment - Rule-based
-
-### Where AI Can Be Used (Optional Enhancement)
-✓ Narrative explanation of scores (LLM generates human-readable reasoning)
-✓ Follow-up question understanding (LLM for NLP understanding)
-✓ Report generation (LLM expands scores into prose)
-✓ Uncertainty quantification (LLM writes about data gaps)
-
-### LLM Integration Pattern (Future)
-
-```python
-# Current: Pattern matching
-if "expand" in query and "new england" in query:
-    handle_expansion_query()
-
-# Future: LLM-assisted query understanding
-response = llm(
-    system="Extract intent, entities, and constraints from user query",
-    user_query=query
-)
-intent = response.intent  # "expansion"
-entities = response.entities  # ["New England"]
-confidence = response.confidence  # 0.95
-```
-
-**Recommended LLM for this use case**:
-- Claude (Anthropic) or GPT-4 for explanation quality
-- Smaller models (Phi, Mistral) for cost optimization
-- Open source options (Llama 2) for data privacy
-
-**Key Constraint**: LLM output should never override deterministic scores
-
-## Assumptions & Limitations
-
-### Assumptions
-1. **Traffic data is current** - Assumes monthly data freshness
-2. **Runways are homogeneous** - Doesn't distinguish runway types (narrow vs. wide body)
-3. **Linear growth extrapolation** - Assumes recent trends continue
-4. **US-focused** - Data sources primarily US airports
-5. **Capital-neutral analysis** - Doesn't model project costs or financing
-6. **Market-efficient** - Assumes no major unpriced shocks (pandemic, strikes)
-
-### Data Quality Issues
-
-| Issue | Impact | Mitigation |
-|-------|--------|-----------|
-| Missing international data for small airports | Low market scores | Note limitations in report |
-| Delay in BTS data (lag up to 3 months) | Stale trends | Use forward guidance where available |
-| Construction events not captured | May miss constraints | Add construction flag to models |
-| Weather/seasonal effects not modeled | Score noise | Add deseasonalization |
-
-### Scoping Notes
-
-**Out of Scope (v1.0)**:
-- ❌ Capital expenditure estimates
-- ❌ Competitive impact analysis
-- ❌ Regulatory approval risk
-- ❌ Environmental/climate risk
-- ❌ Macro economic forecasting
-- ❌ Real estate/land value analysis
-
-**Potential v2.0 Additions**:
-- 📈 Multi-year forecasting model
-- 💰 ROI calculator
-- 🏗️ Construction timeline modeling
-- 🌍 Climate risk scoring
-- 📊 Peer group comparison
-- 🤖 ML model for regression testing
-
-## Deployment Considerations
-
-### Development Mode (Current)
-- Mock data providers
-- CLI chat interface
-- Single-threaded execution
-- No authentication
-
-### Production Deployment
-1. **API Authentication**
-   - Secure storage of BTS/FAA API keys
-   - OAuth for user access
-
-2. **Scaling**
-   - Async query processing
-   - Caching layer for frequently requested airports
-   - Background jobs for data refresh
-
-3. **Monitoring**
-   - Query latency tracking
-   - Scoring anomaly detection
-   - Data freshness monitoring
-
-4. **Data Privacy**
-   - Conversation history encryption
-   - Audit logging for compliance
-   - Data retention policies
-
-## Testing & Validation
-
-### Unit Tests
-- `test_analytics.py` - Analytics calculations
-- `test_scoring.py` - Scoring logic validation
-
-### Integration Tests (To Add)
-- End-to-end query processing
-- Provider data validation
-- Score reproducibility
-
-### Validation Set
-Four example queries:
-1. ✅ New England expansion analysis
-2. ✅ LAX vs SNA congestion comparison
-3. ✅ Anchorage long-haul flight percentage
-4. ✅ SFO unmet demand analysis
-
-## Conclusion
-
-The Airport Investment Intelligence Agent balances **transparency** (deterministic scoring), **usability** (conversational interface), and **accuracy** (multi-source data) to provide investment-grade airport analysis.
-
-**Key Success Factors**:
-- Deterministic scoring ensures defensibility
-- Conversation support enables deeper analysis
-- Mock data allows rapid iteration without API dependencies
-- Clear separation between data, scoring, and UI layers
-
-**Next Steps**:
-1. Integrate real data sources (BTS, FAA, T100 APIs)
-2. Add LLM for enhanced explanation generation
-3. Implement web interface for wider adoption
-4. Add historical backtesting for score validation
-5. Extend to international airports
+Route count is reported separately and is not used as the denominator.
 
+## Where / How AI Is Used
+
+### AI inside the product
+
+The LLM is used as the conversational orchestration layer.
+
+It is responsible for:
+
+* Understanding natural-language questions
+* Selecting the appropriate analytical tools
+* Interpreting geographic expressions such as regions or cities
+* Maintaining conversational follow-up context
+* Explaining deterministic metrics, rankings, assumptions, and limitations
+
+The LLM does **not** calculate aviation KPIs or investment scores. All quantitative calculations and rankings are performed by deterministic Python services.
+
+### AI used during development
+
+AI tools were also used as part of the development workflow.
+
+* **GitHub Copilot** was used to accelerate initial code generation and boilerplate implementation.
+* **ChatGPT** was used for architecture design, reviewing generated code, refining the scoring methodology, debugging integration issues, designing tests, and validating the system against the assignment requirements.
+
+AI-generated code was not accepted blindly. Generated implementations were reviewed, tested against real BTS data, and changed when they did not meet the assignment requirements.
+
+For example, initial mock/random-data approaches were replaced with real public aviation data sources, and the scoring methodology was refined after testing showed that small airports with unusually high percentage growth could be over-ranked.
+
+## Key Tradeoffs
+
+**Explainability over model complexity.**
+A deterministic weighted score was chosen instead of an opaque ML model so rankings remain reproducible and easy to explain.
+
+**Screening over financial valuation.**
+The model identifies airports worth investigating further. It does not include construction costs, airport financials, terminal square footage, or project-level ROI.
+
+**Public-data availability.**
+Some large BTS datasets are consumed as downloaded public files rather than through live APIs. This improves reliability and keeps the prototype achievable within the assignment timeframe.
+
+**Unmet demand is directional.**
+The available data does not directly measure denied passenger demand. Growth, load factor, capacity pressure, and delays are therefore treated as indicators rather than a quantified number of unmet passengers or flights.
+
+## Data Sources
+
+* U.S. DOT/BTS airport traffic data - passengers, seats, departures and load factor
+* BTS T-100 Segment data - routes, distance and performed departures
+* BTS Reporting Carrier On-Time Performance - delays and cancellations
+* U.S. airport metadata - airport and geographic resolution
+
+The prototype analyzes **2025**, with **2024 used as the growth baseline**.
+
+## Future Improvements
+
+A production version could add gate and terminal utilization, runway constraints, airline schedule requests, airport financial data, demand forecasts, project costs, and ROI/IRR modeling.

@@ -25,7 +25,8 @@ env/
 Thumbs.db
 
 # Local aviation datasets
-data/
+data/*
+!data/README.md
 
 # Local logs
 *.log
