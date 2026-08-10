@@ -335,8 +335,13 @@ with:
 
 ```env
 OPENAI_API_KEY=your_key_here
+OPENAI_MODEL=your_model_here
 ```
+### Required Data
 
+Large BTS datasets are not committed to the repository due to their size.
+Before running the application, download and place the required datasets according to the instructions in [`data/README.md`](data/README.md).
+The application expects the required T-100, On-Time Performance, and airport metadata files to be available locally.
 ### Run
 
 ```bash

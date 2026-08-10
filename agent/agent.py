@@ -22,7 +22,7 @@ load_dotenv()
 class AirportInvestmentAgent:
     def __init__(
         self,
-        model: str = "gpt-5.6-luna",
+        model: str | None = None,
     ):
         api_key = os.getenv("OPENAI_API_KEY")
 
@@ -31,7 +31,10 @@ class AirportInvestmentAgent:
 
         self.client = OpenAI(api_key=api_key)
 
-        self.model = model
+        self.model = model or os.getenv(
+            "OPENAI_MODEL",
+            "gpt-5-mini",
+        )
 
         # Keeps conversational context between chat() calls.
         self.previous_response_id: str | None = None
