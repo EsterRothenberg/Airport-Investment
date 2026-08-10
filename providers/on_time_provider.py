@@ -20,6 +20,7 @@ class OnTimeProvider:
 
     def __init__(self, data_dir: str | Path):
         self.data_dir = Path(data_dir)
+        self._cache: dict[int, pd.DataFrame] = {}
 
     def get_airport_operations(
         self,
@@ -32,42 +33,9 @@ class OnTimeProvider:
                 f"On-Time data directory not found: {self.data_dir}"
             )
 
-        files = sorted(
-            self.data_dir.glob(f"{year}-*.csv")
-        )
-
-        if not files:
-            raise OnTimeDataError(
-                f"No On-Time files found for year {year} "
-                f"in directory: {self.data_dir}"
-            )
-
-        print(f"Found {len(files)} On-Time files:")
-        for file in files:
-            print(file.name)
-
-        frames: list[pd.DataFrame] = []
-
-        for file in files:
-            df = pd.read_csv(file)
-
-            self._validate_columns(df)
-
-            frames.append(df)
-
-        combined = pd.concat(
-            frames,
-            ignore_index=True,
-        )
+        combined = self._load_year(year)
 
         airport_code = airport_code.upper().strip()
-
-        combined["ORIGIN"] = (
-            combined["ORIGIN"]
-            .astype(str)
-            .str.upper()
-            .str.strip()
-        )
 
         filtered = combined[
             (combined["ORIGIN"] == airport_code)
@@ -79,9 +47,7 @@ class OnTimeProvider:
 
         scheduled_flights = len(filtered)
 
-        cancelled_mask = (
-            filtered["CANCELLED"] == 1
-        )
+        cancelled_mask = filtered["CANCELLED"] == 1
 
         cancelled_flights = int(
             cancelled_mask.sum()
@@ -161,18 +127,54 @@ class OnTimeProvider:
             assumptions=assumptions,
         )
 
+    def _load_year(
+        self,
+        year: int,
+    ) -> pd.DataFrame:
+
+        if year in self._cache:
+            return self._cache[year]
+
+        files = sorted(
+            self.data_dir.glob(f"{year}-*.csv")
+        )
+
+        if not files:
+            raise OnTimeDataError(
+                f"No On-Time files found for year {year}"
+            )
+
+        frames = []
+
+        for file in files:
+            df = pd.read_csv(file)
+            self._validate_columns(df)
+            frames.append(df)
+
+        combined = pd.concat(
+            frames,
+            ignore_index=True,
+        )
+
+        combined["ORIGIN"] = (
+            combined["ORIGIN"]
+            .astype(str)
+            .str.upper()
+            .str.strip()
+        )
+
+        self._cache[year] = combined
+
+        return combined
+
     @classmethod
     def _validate_columns(
         cls,
         df: pd.DataFrame,
     ) -> None:
-        missing = (
-            cls.REQUIRED_COLUMNS
-            - set(df.columns)
-        )
+        missing = cls.REQUIRED_COLUMNS - set(df.columns)
 
         if missing:
             raise OnTimeDataError(
-                "Missing required On-Time columns: "
-                + ", ".join(sorted(missing))
+                "Missing required On-Time columns: " + ", ".join(sorted(missing))
             )
