@@ -1,22 +1,15 @@
-"""
-Airport data models.
-"""
-
-from dataclasses import dataclass
-from typing import Optional
+from pydantic import BaseModel
 
 
-@dataclass
-class Airport:
-    """Represents an airport with basic information."""
-    
-    code: str
+class Airport(BaseModel):
+    iata_code: str
     name: str
-    city: str
-    country: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    
-    def __str__(self) -> str:
-        """Return string representation."""
-        return f"{self.code} - {self.name}"
+
+    city: str | None = None
+    state_code: str | None = None
+
+    latitude: float | None = None
+    longitude: float | None = None
+
+    airport_type: str | None = None
+    scheduled_service: bool = False
