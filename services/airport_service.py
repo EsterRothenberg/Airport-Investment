@@ -33,6 +33,8 @@ class AirportService:
             analytics_service
             or AnalyticsService()
         )
+        
+        self._metrics_cache: dict[tuple[str, int], AirportMetrics] = {}
 
     def get_metrics(
         self,
@@ -44,6 +46,10 @@ class AirportService:
             .upper()
             .strip()
         )
+        
+        cache_key = (airport_code, year)
+        if cache_key in self._metrics_cache:
+            return self._metrics_cache[cache_key]
 
         previous_year = year - 1
 
@@ -149,7 +155,7 @@ class AirportService:
         # 5. Return one unified AirportMetrics object
         # -------------------------------------------------
 
-        return metrics.model_copy(
+        result = metrics.model_copy(
             update={
                 "delay_rate_pct": delay_rate_pct,
                 "cancellation_rate_pct":
@@ -165,6 +171,9 @@ class AirportService:
                     self._unique(data_sources),
             }
         )
+        
+        self._metrics_cache[cache_key] = result
+        return result
 
     @staticmethod
     def _unique(

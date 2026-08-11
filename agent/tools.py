@@ -11,6 +11,23 @@ from services.airport_resolver import (
 
 ANALYSIS_YEAR = 2025
 
+
+def _validate_airport_code(airport_code: str) -> None:
+    normalized = airport_code.strip().upper() if airport_code else ""
+    
+    if len(normalized) != 3:
+        raise ValueError(
+            f"Invalid airport code '{airport_code}'. "
+            "Use 3-letter IATA code (e.g., LAX, JFK, SFO)."
+        )
+    
+    if not normalized.isalpha():
+        raise ValueError(
+            f"Invalid airport code '{airport_code}'. "
+            "Use 3-letter IATA code (e.g., LAX, JFK, SFO)."
+        )
+
+
 airport_service = AirportService(
     t100_data_path=Path("data/t100/t100_2025.csv"),
     on_time_data_dir=Path("data/on_time"),
@@ -24,6 +41,8 @@ scoring_service = ScoringService()
 def analyze_airport(
     airport_code: str,
 ) -> dict:
+    _validate_airport_code(airport_code)
+    
     metrics = airport_service.get_metrics(
         airport_code=airport_code,
         year=ANALYSIS_YEAR,
@@ -44,6 +63,9 @@ def compare_airports(
 ) -> dict:
     if len(airport_codes) < 2:
         raise ValueError("At least two airport codes are required")
+    
+    for code in airport_codes:
+        _validate_airport_code(code)
 
     results = {}
 
@@ -59,6 +81,8 @@ def compare_airports(
 def get_long_haul_analysis(
     airport_code: str,
 ) -> dict:
+    _validate_airport_code(airport_code)
+    
     airport_code = airport_code.upper().strip()
 
     routes = airport_service.t100_provider.get_routes(
