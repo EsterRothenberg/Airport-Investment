@@ -34,7 +34,7 @@ if "messages" not in st.session_state:
 if "voice_processor" not in st.session_state:
     try:
         st.session_state.voice_processor = VoiceProcessor()
-    except ValueError:
+    except Exception:
         st.session_state.voice_processor = None
 
 if "enable_voice_output" not in st.session_state:

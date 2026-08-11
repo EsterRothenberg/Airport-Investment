@@ -50,4 +50,4 @@ class TestAirportCodeValidation:
 
     def test_none_input_empty_string(self):
         with pytest.raises(ValueError, match="3-letter IATA code"):
-            _validate_airport_code("")
+            _validate_airport_code(None)

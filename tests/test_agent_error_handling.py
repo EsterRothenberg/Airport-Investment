@@ -47,21 +47,54 @@ class TestAgentErrorHandling:
                 agent.chat("   ")
 
     def test_max_tool_iterations_protection(self):
-        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+        with patch.dict(
+            "os.environ",
+            {"OPENAI_API_KEY": "test-key"},
+        ):
             agent = AirportInvestmentAgent()
-            
+
             mock_tool_call = MagicMock()
             mock_tool_call.type = "function_call"
             mock_tool_call.name = "test_tool"
             mock_tool_call.arguments = "{}"
             mock_tool_call.call_id = "call-1"
-            
+
             mock_response = MagicMock()
             mock_response.id = "resp-id"
             mock_response.output = [mock_tool_call]
-            
+
             with patch.object(
-                agent, "_execute_tool", return_value={"success": True}
+                agent,
+                "_execute_tool",
+                return_value={"success": True},
             ):
-                with pytest.raises(AgentError, match="Max tool iterations exceeded"):
-                    agent._resolve_tool_calls(mock_response)
+                with patch.object(
+                    agent.client.responses,
+                    "create",
+                    return_value=mock_response,
+                ):
+                    with pytest.raises(
+                        AgentError,
+                        match="Max tool iterations exceeded",
+                    ):
+                        agent._resolve_tool_calls(
+                            mock_response
+                        )
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+                agent = AirportInvestmentAgent()
+                
+                mock_tool_call = MagicMock()
+                mock_tool_call.type = "function_call"
+                mock_tool_call.name = "test_tool"
+                mock_tool_call.arguments = "{}"
+                mock_tool_call.call_id = "call-1"
+                
+                mock_response = MagicMock()
+                mock_response.id = "resp-id"
+                mock_response.output = [mock_tool_call]
+                
+                with patch.object(
+                    agent, "_execute_tool", return_value={"success": True}
+                ):
+                    with pytest.raises(AgentError, match="Max tool iterations exceeded"):
+                        agent._resolve_tool_calls(mock_response)
