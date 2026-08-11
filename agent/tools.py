@@ -13,7 +13,15 @@ ANALYSIS_YEAR = 2025
 
 
 def _validate_airport_code(airport_code: str) -> None:
-    if not airport_code or len(airport_code.strip()) != 3:
+    normalized = airport_code.strip().upper() if airport_code else ""
+    
+    if len(normalized) != 3:
+        raise ValueError(
+            f"Invalid airport code '{airport_code}'. "
+            "Use 3-letter IATA code (e.g., LAX, JFK, SFO)."
+        )
+    
+    if not normalized.isalpha():
         raise ValueError(
             f"Invalid airport code '{airport_code}'. "
             "Use 3-letter IATA code (e.g., LAX, JFK, SFO)."

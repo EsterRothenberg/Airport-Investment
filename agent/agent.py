@@ -77,6 +77,9 @@ class AirportInvestmentAgent:
 
             return response.output_text
 
+        except AgentError:
+            raise
+
         except Exception as exc:
             raise AgentError(f"Agent communication failed: {exc}") from exc
 

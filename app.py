@@ -81,7 +81,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.write("**🎤 Voice Features**")
+    st.write("**🎤 Voice Features (Optional Bonus)**")
     
     voice_enabled = st.session_state.voice_processor is not None
     
@@ -164,6 +164,7 @@ if use_voice and voice_input_available:
     audio_data = st.audio_input("Record your question:")
     
     if audio_data is not None:
+        tmp_path = None
         try:
             with st.spinner("Transcribing audio..."):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
@@ -171,12 +172,13 @@ if use_voice and voice_input_available:
                     tmp_path = tmp.name
                 
                 user_message = st.session_state.voice_processor.transcribe_audio(tmp_path)
-                Path(tmp_path).unlink()
-                
                 st.success(f"Transcribed: {user_message}")
         except Exception as exc:
             st.error(f"Transcription error: {exc}")
             user_message = None
+        finally:
+            if tmp_path:
+                Path(tmp_path).unlink(missing_ok=True)
 
 if user_message:
     st.session_state.messages.append(
