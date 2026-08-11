@@ -19,6 +19,10 @@ from agent.tools import (
 load_dotenv()
 
 
+class AgentError(Exception):
+    pass
+
+
 class AirportInvestmentAgent:
     def __init__(
         self,
@@ -33,7 +37,7 @@ class AirportInvestmentAgent:
 
         self.model = model or os.getenv(
             "OPENAI_MODEL",
-            "gpt-5-mini",
+            "gpt-4o-mini",
         )
 
         # Keeps conversational context between chat() calls.
@@ -54,30 +58,27 @@ class AirportInvestmentAgent:
         self,
         message: str,
     ) -> str:
-        """
-        Send a user message to the agent.
 
-        The model may:
-        1. answer directly, or
-        2. request one or more tool calls.
+        if not message or not message.strip():
+            raise AgentError("Message cannot be empty")
 
-        Tool calls are executed locally and their results
-        are returned to the model for the final explanation.
-        """
+        try:
+            response = self.client.responses.create(
+                model=self.model,
+                instructions=SYSTEM_PROMPT,
+                input=message,
+                tools=TOOLS,
+                previous_response_id=self.previous_response_id,
+            )
 
-        response = self.client.responses.create(
-            model=self.model,
-            instructions=SYSTEM_PROMPT,
-            input=message,
-            tools=TOOLS,
-            previous_response_id=self.previous_response_id,
-        )
+            response = self._resolve_tool_calls(response)
 
-        response = self._resolve_tool_calls(response)
+            self.previous_response_id = response.id
 
-        self.previous_response_id = response.id
+            return response.output_text
 
-        return response.output_text
+        except Exception as exc:
+            raise AgentError(f"Agent communication failed: {exc}") from exc
 
     def reset(self) -> None:
         """
@@ -89,14 +90,13 @@ class AirportInvestmentAgent:
         self,
         response,
     ):
-        """
-        Execute every function call requested by the model.
 
-        The model can request another tool after receiving
-        the first tool result, so this is implemented as a loop.
-        """
+        max_iterations = 10
+        iteration = 0
 
-        while True:
+        while iteration < max_iterations:
+            iteration += 1
+            
             tool_calls = [
                 item for item in response.output if item.type == "function_call"
             ]
@@ -124,23 +124,24 @@ class AirportInvestmentAgent:
                     }
                 )
 
-            response = self.client.responses.create(
-                model=self.model,
-                instructions=SYSTEM_PROMPT,
-                tools=TOOLS,
-                previous_response_id=response.id,
-                input=tool_outputs,
-            )
+            try:
+                response = self.client.responses.create(
+                    model=self.model,
+                    instructions=SYSTEM_PROMPT,
+                    tools=TOOLS,
+                    previous_response_id=response.id,
+                    input=tool_outputs,
+                )
+            except Exception as exc:
+                raise AgentError(f"Tool execution failed: {exc}") from exc
+        
+        raise AgentError("Max tool iterations exceeded")
 
     def _execute_tool(
         self,
         tool_name: str,
         arguments_json: str,
     ) -> dict | list:
-        """
-        Execute a tool safely and always return
-        structured output to the LLM.
-        """
 
         tool = self.tool_map.get(tool_name)
 
@@ -152,18 +153,21 @@ class AirportInvestmentAgent:
 
         try:
             arguments = json.loads(arguments_json)
-
             result = tool(**arguments)
-
-            return {
-                "success": True,
-                "data": result,
-            }
+            return {"success": True, "data": result}
 
         except json.JSONDecodeError as exc:
             return {
                 "success": False,
-                "error": (f"Invalid tool arguments: {exc}"),
+                "error": f"Invalid tool arguments JSON: {exc}",
+                "tool": tool_name,
+            }
+
+        except ValueError as exc:
+            return {
+                "success": False,
+                "error": f"Invalid argument value: {exc}",
+                "tool": tool_name,
             }
 
         except Exception as exc:
@@ -171,4 +175,5 @@ class AirportInvestmentAgent:
                 "success": False,
                 "error": str(exc),
                 "tool": tool_name,
+                "type": type(exc).__name__,
             }
